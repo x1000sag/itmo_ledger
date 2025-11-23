@@ -187,7 +187,7 @@ func (m BalanceModel) WithdrawBonusPoints(userId uuid.UUID, amount int) error {
 
 	// Check if we have enough balance
 	if totalAvailable < amount {
-		return errors.New("insufficient funds")
+		return ErrInsufficientFunds
 	}
 
 	// Deduct from transactions FIFO

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"github.com/google/uuid"
 	"net/http"
+	"simple-ledger.itmo.ru/internal/data"
 	"simple-ledger.itmo.ru/internal/validator"
 )
 
@@ -53,7 +55,7 @@ func (app *application) createTransactionHandler(w http.ResponseWriter, r *http.
 	} else {
 		err := app.models.Balances.WithdrawBonusPoints(id, trxIn.Amount)
 		if err != nil {
-			if err.Error() == "insufficient funds" {
+			if errors.Is(err, data.ErrInsufficientFunds) {
 				app.badRequestResponse(w, r, err)
 			} else {
 				app.serverErrorResponse(w, r, err)
