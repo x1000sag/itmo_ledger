@@ -1,0 +1,61 @@
+name: Tests
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["main"]
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    services:
+      postgres:
+        image: postgres:16
+        ports:
+          - 5433:5432
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DB: ledger
+        options: >-
+          --health-cmd "pg_isready -U user -d ledger" --health-interval 10s --health-timeout 5s --health-retries 12
+    env:
+      TEST_DATABASE_DSN: postgres://user:pass@localhost:5433/ledger?sslmode=disable
+      PGPASSWORD: pass
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          cache: true
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+      - name: Wait for Postgres and enable pgcrypto
+        run: |
+          for i in {1..30}; do
+            if psql -h localhost -p 5433 -U user -d ledger -c "SELECT 1" >/dev/null 2>&1; then
+              break
+            fi
+            echo 'Waiting for Postgres...'
+            sleep 2
+          done
+          psql -h localhost -p 5433 -U user -d ledger -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+      - name: Download dependencies
+        run: go mod download
+      - name: Run tests with race & coverage
+        run: |
+          set -e
+          go test -race -covermode=atomic -coverprofile=coverage.out ./... -v
+          echo "### Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          go tool cover -func=coverage.out | grep total | tee -a $GITHUB_STEP_SUMMARY || true
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
