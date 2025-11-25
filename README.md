@@ -56,3 +56,19 @@ curl -X POST localhost:8080/v1/transactions -d '{"user_id": "653F535D-10BA-4186-
 ```bash
 curl -X GET localhost:8080/v1/users/653F535D-10BA-4186-A05B-74493354F13B/balance 
 ```
+
+## Тестирование
+
+Для запуска тестов требуется доступный PostgreSQL. По умолчанию тесты ожидают БД по адресу:
+
+```
+postgres://user:pass@localhost:5433/ledger?sslmode=disable
+```
+
+Можно переопределить через переменную окружения `TEST_DATABASE_DSN`.
+
+Запуск:
+
+```bash
+go test ./...
+```
