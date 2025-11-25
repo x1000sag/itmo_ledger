@@ -1,0 +1,63 @@
+name: Go Tests
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DB: ledger
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U user -d ledger"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      TEST_DATABASE_DSN: postgres://user:pass@localhost:5433/ledger?sslmode=disable
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Wait for PostgreSQL
+        run: |
+          for i in {1..30}; do
+            pg_isready -h localhost -p 5433 -U user && break
+            echo "Waiting for PostgreSQL..."
+            sleep 1
+          done
+          pg_isready -h localhost -p 5433 -U user || exit 1
+
+      - name: Create pgcrypto extension
+        run: |
+          PGPASSWORD=pass psql -h localhost -p 5433 -U user -d ledger -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test ./... -v
