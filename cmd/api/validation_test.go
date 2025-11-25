@@ -16,7 +16,7 @@ import (
 func testApp(t *testing.T) *application {
 	t.Helper()
 	db := test.SetupTestDB(t)
-	test.ResetTransactions(t, db)
+	// Each test uses unique UUIDs, no need to truncate shared table
 	return &application{
 		models: data.Models{Balances: data.BalanceModel{DB: db}},
 	}

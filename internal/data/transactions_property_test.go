@@ -10,21 +10,18 @@ import (
 
 func TestBalanceInvariantProperty(t *testing.T) {
 	db := test.SetupTestDB(t)
-	test.ResetTransactions(t, db)
 	m := BalanceModel{DB: db}
 	r := rand.New(rand.NewSource(42)) // Fixed seed for reproducibility
 
 	for seq := 0; seq < 50; seq++ {
-		// Reset transactions between sequences
-		test.ResetTransactions(t, db)
-
+		// Use a unique user for each sequence - no need to reset entire table
 		user := uuid.New()
 		total := 0
 
 		// Random deposits (10 per sequence)
 		for i := 0; i < 10; i++ {
-			amt := r.Intn(200) + 1                       // 1-200
-			lifetime := r.Intn(40) + 1                   // 1-40 days
+			amt := r.Intn(200) + 1     // 1-200
+			lifetime := r.Intn(40) + 1 // 1-40 days
 			_, err := m.AddBonusPoints(user, amt, lifetime)
 			if err != nil {
 				t.Fatalf("seq %d, deposit %d err: %v", seq, i, err)
