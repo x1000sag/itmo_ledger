@@ -29,7 +29,9 @@ func TestBalanceInvariantProperty(t *testing.T) {
 			total += amt
 		}
 
-		// Withdrawals not exceeding total (random partial withdrawal)
+		// Withdraw a random amount up to half the total balance.
+		// Limited to half to ensure we don't accidentally exceed available
+		// balance due to potential timing issues with expiration.
 		withdrawTarget := r.Intn(total/2 + 1)
 		if withdrawTarget > 0 {
 			if err := m.WithdrawBonusPoints(user, withdrawTarget); err != nil {

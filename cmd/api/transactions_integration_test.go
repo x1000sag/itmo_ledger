@@ -70,8 +70,11 @@ func TestFIFOThreeDeposits(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// withdraw 220 -> consumes all 100 (5d), all 120 from (10d), and 0 of third
-	// After withdrawal: balance should be 450 - 220 = 230
+	// Withdraw 220 using FIFO:
+	// - Consume all 100 from 5-day deposit
+	// - Consume 120 from 150 in 10-day deposit, leaving 30
+	// - 200 in 25-day deposit remains untouched
+	// Total remaining: 30 + 200 = 230
 	resp = doPost(t, srv, `{"user_id":"`+user+`","amount":220,"type":"withdrawal"}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("withdraw status %d", resp.StatusCode)

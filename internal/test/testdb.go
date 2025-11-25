@@ -3,6 +3,7 @@ package test
 import (
 	"database/sql"
 	"os"
+	"strings"
 	"testing"
 
 	_ "github.com/lib/pq"
@@ -26,40 +27,33 @@ func SetupTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("failed to ping database: %v", err)
 	}
 
-	// Check if transactions table exists
-	var exists bool
-	err = db.QueryRow(`SELECT EXISTS (
-		SELECT FROM information_schema.tables 
-		WHERE table_schema = 'public' AND table_name = 'transactions'
-	)`).Scan(&exists)
-	if err != nil {
-		t.Fatalf("failed to check table existence: %v", err)
+	// Run migrations - use IF NOT EXISTS and ignore "already exists" errors
+	setup := []string{
+		`CREATE TABLE IF NOT EXISTS balances (
+			id uuid PRIMARY KEY,
+			updated_at timestamp(0) with time zone NOT NULL DEFAULT NOW(),
+			amount int
+		)`,
+		`CREATE TABLE IF NOT EXISTS transactions (
+			id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+			user_id uuid NOT NULL,
+			amount int NOT NULL CHECK (amount > 0),
+			created_at timestamp(0) with time zone NOT NULL DEFAULT NOW(),
+			expires_at timestamp(0) with time zone NOT NULL,
+			remaining_amount int NOT NULL CHECK (remaining_amount >= 0),
+			CONSTRAINT remaining_amount_check CHECK (remaining_amount <= amount)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id)`,
 	}
 
-	if !exists {
-		// Run migrations
-		setup := []string{
-			`CREATE TABLE IF NOT EXISTS balances (
-				id uuid PRIMARY KEY,
-				updated_at timestamp(0) with time zone NOT NULL DEFAULT NOW(),
-				amount int
-			)`,
-			`CREATE TABLE IF NOT EXISTS transactions (
-				id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-				user_id uuid NOT NULL,
-				amount int NOT NULL CHECK (amount > 0),
-				created_at timestamp(0) with time zone NOT NULL DEFAULT NOW(),
-				expires_at timestamp(0) with time zone NOT NULL,
-				remaining_amount int NOT NULL CHECK (remaining_amount >= 0),
-				CONSTRAINT remaining_amount_check CHECK (remaining_amount <= amount)
-			)`,
-			`CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id)`,
-		}
-
-		for _, m := range setup {
-			if _, err := db.Exec(m); err != nil {
-				t.Fatalf("failed to run setup: %v", err)
+	for _, m := range setup {
+		if _, err := db.Exec(m); err != nil {
+			// Ignore "already exists" or duplicate constraint errors
+			if strings.Contains(err.Error(), "already exists") ||
+				strings.Contains(err.Error(), "duplicate key") {
+				continue
 			}
+			t.Fatalf("failed to run setup: %v", err)
 		}
 	}
 

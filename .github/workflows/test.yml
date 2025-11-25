@@ -53,7 +53,9 @@ jobs:
           set -e
           go test -race -covermode=atomic -coverprofile=coverage.out ./... -v
           echo "### Coverage Summary" >> $GITHUB_STEP_SUMMARY
-          go tool cover -func=coverage.out | grep total | tee -a $GITHUB_STEP_SUMMARY || true
+          if [ -f coverage.out ]; then
+            go tool cover -func=coverage.out | grep total | tee -a $GITHUB_STEP_SUMMARY
+          fi
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
         with:
