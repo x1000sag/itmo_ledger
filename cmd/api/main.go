@@ -19,6 +19,7 @@ type config struct {
 	db   struct {
 		dsn string
 	}
+	pointsLifetimeDays int
 }
 
 type application struct {
@@ -32,6 +33,7 @@ func main() {
 
 	flag.IntVar(&cfg.port, "port", 8080, "API server port")
 	flag.StringVar(&cfg.db.dsn, "db-dsn", os.Getenv("DB_DSN"), "PostgreSQL DSN")
+	flag.IntVar(&cfg.pointsLifetimeDays, "point-lifetime-days", 30, "Bonud point lifetime duration in days")
 	flag.Parse()
 
 	logger := log.New(os.Stdout, "", log.Ldate|log.Ltime)

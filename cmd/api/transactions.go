@@ -6,12 +6,15 @@ import (
 	"net/http"
 	"simple-ledger.itmo.ru/internal/data"
 	"simple-ledger.itmo.ru/internal/validator"
+	"time"
 )
 
+
 type transactionIn struct {
-	UserId string `json:"user_id"`
-	Amount int    `json:"amount"`
-	Type   string `json:"type"`
+	UserId string 										`json:"user_id"`
+	Amount int    										`json:"amount"`
+	Type   string 										`json:"type"`
+	Expirations []data.ExpirationInfo `json:"expirations"`
 }
 
 func (app *application) createTransactionHandler(w http.ResponseWriter, r *http.Request) {
@@ -22,10 +25,13 @@ func (app *application) createTransactionHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	id, err := uuid.Parse(trxIn.UserId)
+	userID, err := uuid.Parse(trxIn.UserId)
+	if err != nil {
+		app.badRequestResponse(w, r, err)
+		return
+	}
 
 	v := validator.New()
-	v.Check(err == nil, "user_id", "must be uuid")
 	v.Check(trxIn.Amount > 0, "amount", "must be positive")
 	v.Check(validator.IsPermitted(trxIn.Type, "deposit", "withdrawal"), "type", "must be deposit or withdrawal")
 
@@ -34,22 +40,72 @@ func (app *application) createTransactionHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	balance, err := app.models.Balances.Get(id)
-	if err != nil {
-		switch {
-		case errors.Is(err, data.ErrRecordNotFound):
-			app.createNewBalance(w, r, &data.Balance{
-				Id:     id,
-				Amount: trxIn.Amount,
-			})
-		default:
+	switch trxIn.Type {
+	case "deposit":
+
+		expiresAt := time.Now().AddDate(0, 0, app.config.pointsLifetimeDays)
+		transaction := &data.Transaction{
+			ID:        uuid.New(),
+			UserID:    userID,
+			Amount:    trxIn.Amount,
+			Type:      "deposit",
+			ExpiresAt: &expiresAt,
+			Remaining: trxIn.Amount,
+		}
+
+		err = app.models.Transactions.Insert(transaction)
+		if err != nil {
+			app.serverErrorResponse(w, r, err)
+			return
+		}
+
+		balanceInfo, err := app.models.Transactions.GetBalance(userID)
+		if err != nil {
+			app.serverErrorResponse(w, r, err)
+			return
+		}
+
+		response := balanceResponse{
+			UserID:      balanceInfo.UserID,
+			Balance:     balanceInfo.Balance,
+			Expirations: balanceInfo.Expirations,
+		}
+
+		err = app.writeJSON(w, http.StatusCreated, response, nil)
+		if err != nil {
 			app.serverErrorResponse(w, r, err)
 		}
-		return
-	}
 
-	app.updateBalance(w, r, balance, trxIn)
+	case "withdrawal":
+		err = app.models.Transactions.Withdraw(userID, trxIn.Amount)
+		if err != nil {
+			if errors.Is(err, data.ErrInsufficientFunds) {
+				app.badRequestResponse(w, r, err)
+			} else {
+				app.serverErrorResponse(w, r, err)
+			}
+			return
+		}
+
+		balanceInfo, err := app.models.Transactions.GetBalance(userID)
+		if err != nil {
+			app.serverErrorResponse(w, r, err)
+			return
+		}
+
+		response := balanceResponse{
+			UserID:      balanceInfo.UserID,
+			Balance:     balanceInfo.Balance,
+			Expirations: balanceInfo.Expirations,
+		}
+
+		err = app.writeJSON(w, http.StatusOK, response, nil)
+		if err != nil {
+			app.serverErrorResponse(w, r, err)
+		}
+	}
 }
+
 
 func (app *application) createNewBalance(w http.ResponseWriter, r *http.Request, balance *data.Balance) {
 	err := app.models.Balances.Insert(balance)
