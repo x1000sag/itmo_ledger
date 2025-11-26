@@ -9,9 +9,10 @@ import (
 )
 
 type transactionIn struct {
-	UserId string `json:"user_id"`
-	Amount int    `json:"amount"`
-	Type   string `json:"type"`
+	UserId       string `json:"user_id"`
+	Amount       int    `json:"amount"`
+	Type         string `json:"type"`
+	LifetimeDays int    `json:"lifetime_days,omitempty"`
 }
 
 func (app *application) createTransactionHandler(w http.ResponseWriter, r *http.Request) {
@@ -29,59 +30,56 @@ func (app *application) createTransactionHandler(w http.ResponseWriter, r *http.
 	v.Check(trxIn.Amount > 0, "amount", "must be positive")
 	v.Check(validator.IsPermitted(trxIn.Type, "deposit", "withdrawal"), "type", "must be deposit or withdrawal")
 
+	if trxIn.Type == "deposit" {
+		if trxIn.LifetimeDays == 0 {
+			trxIn.LifetimeDays = 365 // Default to 1 year
+		}
+		v.Check(trxIn.LifetimeDays > 0, "lifetime_days", "must be positive")
+	}
+
 	if !v.Valid() {
 		app.failedValidationResponse(w, r, v.Errors)
 		return
 	}
 
-	balance, err := app.models.Balances.Get(id)
-	if err != nil {
-		switch {
-		case errors.Is(err, data.ErrRecordNotFound):
-			app.createNewBalance(w, r, &data.Balance{
-				Id:     id,
-				Amount: trxIn.Amount,
-			})
-		default:
+	if trxIn.Type == "deposit" {
+		transaction, err := app.models.Balances.AddBonusPoints(id, trxIn.Amount, trxIn.LifetimeDays)
+		if err != nil {
+			app.serverErrorResponse(w, r, err)
+			return
+		}
+		err = app.writeJSON(w, http.StatusCreated, transaction, nil)
+		if err != nil {
 			app.serverErrorResponse(w, r, err)
 		}
-		return
-	}
-
-	app.updateBalance(w, r, balance, trxIn)
-}
-
-func (app *application) createNewBalance(w http.ResponseWriter, r *http.Request, balance *data.Balance) {
-	err := app.models.Balances.Insert(balance)
-	if err != nil {
-		app.serverErrorResponse(w, r, err)
-	}
-	err = app.writeJSON(w, http.StatusCreated, balance, nil)
-	if err != nil {
-		app.serverErrorResponse(w, r, err)
-	}
-}
-
-func (app *application) updateBalance(w http.ResponseWriter, r *http.Request, balance *data.Balance, trxId transactionIn) {
-	if trxId.Type == "withdrawal" && balance.Amount < trxId.Amount {
-		app.badRequestResponse(w, r, errors.New("insufficient funds"))
-		return
-	}
-
-	if trxId.Type == "deposit" {
-		balance.Amount += trxId.Amount
 	} else {
-		balance.Amount -= trxId.Amount
+		err := app.models.Balances.WithdrawBonusPoints(id, trxIn.Amount)
+		if err != nil {
+			if errors.Is(err, data.ErrInsufficientFunds) {
+				app.badRequestResponse(w, r, err)
+			} else {
+				app.serverErrorResponse(w, r, err)
+			}
+			return
+		}
+
+		// Return the new balance
+		balance, expirations, err := app.models.Balances.GetBalanceWithExpiration(id)
+		if err != nil {
+			app.serverErrorResponse(w, r, err)
+			return
+		}
+
+		response := map[string]any{
+			"user_id":     id,
+			"balance":     balance,
+			"expirations": expirations,
+		}
+		err = app.writeJSON(w, http.StatusOK, response, nil)
+		if err != nil {
+			app.serverErrorResponse(w, r, err)
+		}
 	}
-	err := app.models.Balances.Update(balance)
-	if err != nil {
-		app.serverErrorResponse(w, r, err)
-	}
-	err = app.writeJSON(w, http.StatusOK, balance, nil)
-	if err != nil {
-		app.serverErrorResponse(w, r, err)
-	}
-	return
 }
 
 func (app *application) showUserBalanceHandler(w http.ResponseWriter, r *http.Request) {
@@ -91,18 +89,19 @@ func (app *application) showUserBalanceHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	balance, err := app.models.Balances.Get(id)
+	balance, expirations, err := app.models.Balances.GetBalanceWithExpiration(id)
 	if err != nil {
-		switch {
-		case errors.Is(err, data.ErrRecordNotFound):
-			app.notFoundResponse(w, r)
-		default:
-			app.serverErrorResponse(w, r, err)
-		}
+		app.serverErrorResponse(w, r, err)
 		return
 	}
 
-	if err = app.writeJSON(w, http.StatusOK, balance, nil); err != nil {
+	response := map[string]any{
+		"user_id":     id,
+		"balance":     balance,
+		"expirations": expirations,
+	}
+
+	if err = app.writeJSON(w, http.StatusOK, response, nil); err != nil {
 		app.serverErrorResponse(w, r, err)
 	}
 }
